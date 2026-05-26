@@ -2,319 +2,59 @@
 const { useState, useMemo, useEffect, useRef } = React;
 
 /* ---------------------------------------------------------------- */
-/* MOCK DATA — 성수/성동 인근 전시·미술관 (메종 나비 포함)               */
-/* origin: 성수동 일대 (37.5447, 127.0557) 기준 거리 사전계산           */
+/* API HELPERS — Naver 응답 → venue 객체 변환                       */
 /* ---------------------------------------------------------------- */
-const VENUES = [
-  {
-    id: "maison-nabi",
-    name: "메종 나비",
-    nameEn: "Maison Nabi",
-    category: "갤러리",
-    address: "서울 성동구 금호로3길 14",
-    addressDetail: "1F · 응봉역 도보 6분",
-    lat: 37.5497, lng: 127.0203,
-    dist: 3.4,
+function mapCategory(cat) {
+  if (!cat) return '갤러리';
+  if (/국립/.test(cat) && /미술관/.test(cat)) return '국립미술관';
+  if (/미술관/.test(cat)) return '사립미술관';
+  if (/박물관/.test(cat)) return '박물관';
+  if (/센터|재단|미디어/.test(cat)) return '비영리미술관';
+  if (/갤러리/.test(cat)) return '갤러리';
+  return '갤러리';
+}
+
+function parseApiItem(it, idx, origin) {
+  const coords = parseCoords(it.mapx, it.mapy);
+  const dist   = coords ? haversineKm(origin.lat, origin.lng, coords.lat, coords.lng) : null;
+  const e      = it.enriched || {};
+  const now    = new Date();
+  const ended  = e.endDate ? new Date(e.endDate) < now : false;
+
+  return {
+    id:          `nv-${idx}-${(it.title || '').slice(0,8).replace(/\s/g,'')}`,
+    name:        it.title        || '이름 없음',
+    nameEn:      it.category     || '',
+    category:    mapCategory(it.category),
+    address:     it.address      || '',
+    addressDetail: '',
+    lat:         coords?.lat,
+    lng:         coords?.lng,
+    dist,
     show: {
-      title: "대비, 그 사이의 시학",
-      titleEn: "Poetics of Contrast",
-      period: "2026.04.10 — 2026.07.30",
-      endDate: "2026-07-30",
-      status: "전시 중",
-      curator: "기획 · 정민",
-      artists: ["김연수", "오하영", "장우식"],
+      title:   e.showTitle  || '',
+      titleEn: '',
+      period:  e.period     || '',
+      endDate: e.endDate    || null,
+      status:  ended ? '종료' : (e.endDate ? '전시 중' : '확인 필요'),
+      curator: e.curator    || '',
+      artists: e.artist ? [e.artist] : [],
     },
-    fee: "무료",
-    hours: "화–일 12:00–19:00 · 월 휴관",
-    phone: "0507-1342-8861",
+    fee:   e.fee   || '확인 필요',
+    hours: e.hours || '확인 필요',
+    phone: it.telephone || '—',
     links: {
-      naver: "https://map.naver.com/p/search/메종 나비",
-      review: "https://m.blog.naver.com/moses_0707/224260836912",
+      naver:   `https://map.naver.com/p/search/${encodeURIComponent(it.title || '')}`,
+      site:    it.link || undefined,
+      ...(e.blogLinks || []).reduce((acc, b, i) => { acc[`blog${i+1}`] = b.link; return acc; }, {}),
     },
-    tags: ["회화", "독립갤러리", "신진작가"],
-    confidence: "low",
-    note: "네이버 지역검색 미인덱싱 — 블로그 후기 기준",
-  },
-  {
-    id: "d-museum",
-    name: "디뮤지엄",
-    nameEn: "D Museum",
-    category: "사립미술관",
-    address: "서울 성동구 왕십리로 83-21",
-    addressDetail: "성수 1F~B1",
-    lat: 37.5443, lng: 127.0440,
-    dist: 1.2,
-    show: {
-      title: "우리는 끝없이 펼쳐지는 풍경 속에서",
-      titleEn: "An Endless Landscape",
-      period: "2025.09.05 — 2026.08.15",
-      endDate: "2026-08-15",
-      status: "전시 중",
-      curator: "디뮤지엄 큐레토리얼팀",
-      artists: ["국내외 12팀"],
-    },
-    fee: "성인 18,000원 · 청소년 13,000원",
-    hours: "화–일 10:00–19:00 · 월 휴관",
-    phone: "070-5097-0020",
-    links: {
-      naver: "https://map.naver.com/p/search/디뮤지엄",
-      site: "https://daelimmuseum.org",
-    },
-    tags: ["사진", "설치", "기획전"],
-    confidence: "high",
-  },
-  {
-    id: "groundseesaw",
-    name: "그라운드시소 성수",
-    nameEn: "Ground Seesaw Seongsu",
-    category: "미디어아트",
-    address: "서울 성동구 아차산로 84",
-    addressDetail: "1·2호점",
-    lat: 37.5447, lng: 127.0557,
-    dist: 0.4,
-    show: {
-      title: "빛의 정원: 클로드 모네",
-      titleEn: "Light Garden: Monet",
-      period: "2025.07.20 — 2026.09.30",
-      endDate: "2026-09-30",
-      status: "전시 중",
-      curator: "미디어앤아트",
-      artists: ["몰입형 미디어아트"],
-    },
-    fee: "성인 22,000원 · 청소년 17,000원",
-    hours: "매일 10:00–20:00 · 입장마감 19:00",
-    phone: "1522-1796",
-    links: {
-      naver: "https://map.naver.com/p/search/그라운드시소 성수",
-      site: "https://groundseesaw.co.kr",
-    },
-    tags: ["몰입형", "미디어", "포토존"],
-    confidence: "high",
-  },
-  {
-    id: "seoulforest-gallery",
-    name: "서울숲 갤러리아 포레",
-    nameEn: "Galleria Foret",
-    category: "갤러리",
-    address: "서울 성동구 서울숲2길 32-14",
-    addressDetail: "지하1층",
-    lat: 37.5454, lng: 127.0413,
-    dist: 1.5,
-    show: {
-      title: "정적의 표면",
-      titleEn: "Surface of Silence",
-      period: "2026.04.15 — 2026.06.20",
-      endDate: "2026-06-20",
-      status: "전시 중",
-      curator: "이수경",
-      artists: ["박서영", "한지민"],
-    },
-    fee: "무료",
-    hours: "화–토 11:00–18:00 · 일·월 휴관",
-    phone: "02-6952-7000",
-    links: {
-      naver: "https://map.naver.com/p/search/서울숲 갤러리아 포레",
-    },
-    tags: ["조각", "추상"],
-    confidence: "medium",
-  },
-  {
-    id: "ararioo",
-    name: "아라리오뮤지엄 인 스페이스",
-    nameEn: "Arario Museum in Space",
-    category: "사립미술관",
-    address: "서울 종로구 율곡로 83",
-    addressDetail: "구 공간 사옥",
-    lat: 37.5797, lng: 126.9858,
-    dist: 7.1,
-    show: {
-      title: "Really? Really!",
-      titleEn: "Really? Really!",
-      period: "상설전 · 일부 교체",
-      endDate: null,
-      status: "전시 중",
-      curator: "아라리오 컬렉션",
-      artists: ["트레이시 에민", "키스 해링 외"],
-    },
-    fee: "성인 14,000원 · 학생 7,000원",
-    hours: "화–일 10:00–19:00 · 월 휴관",
-    phone: "02-736-5700",
-    links: {
-      naver: "https://map.naver.com/p/search/아라리오뮤지엄 인 스페이스",
-      site: "https://www.arariomuseum.org",
-    },
-    tags: ["컨템포러리", "컬렉션"],
-    confidence: "high",
-  },
-  {
-    id: "leeum",
-    name: "리움미술관",
-    nameEn: "Leeum Museum of Art",
-    category: "사립미술관",
-    address: "서울 용산구 이태원로55길 60-16",
-    addressDetail: "한남동",
-    lat: 37.5384, lng: 126.9990,
-    dist: 6.3,
-    show: {
-      title: "이불 — 1998년 이후",
-      titleEn: "Lee Bul: 1998–",
-      period: "2025.12.04 — 2026.07.04",
-      endDate: "2026-07-04",
-      status: "전시 중",
-      curator: "리움미술관",
-      artists: ["이불"],
-    },
-    fee: "성인 20,000원 · 상설전 무료",
-    hours: "화–일 10:00–18:00 · 월 휴관",
-    phone: "02-2014-6900",
-    links: {
-      naver: "https://map.naver.com/p/search/리움미술관",
-      site: "https://www.leeum.org",
-    },
-    tags: ["기획전", "한국현대"],
-    confidence: "high",
-  },
-  {
-    id: "mmca-seoul",
-    name: "국립현대미술관 서울",
-    nameEn: "MMCA Seoul",
-    category: "국립미술관",
-    address: "서울 종로구 삼청로 30",
-    addressDetail: "소격동",
-    lat: 37.5786, lng: 126.9803,
-    dist: 7.6,
-    show: {
-      title: "올해의 작가상 2025",
-      titleEn: "Korea Artist Prize 2025",
-      period: "2025.10.31 — 2026.07.29",
-      endDate: "2026-07-29",
-      status: "전시 중",
-      curator: "MMCA",
-      artists: ["4인 후보"],
-    },
-    fee: "통합권 4,000원 · 수·토 야간 무료",
-    hours: "월–일 10:00–18:00 · 수·토 21:00",
-    phone: "02-3701-9500",
-    links: {
-      naver: "https://map.naver.com/p/search/국립현대미술관 서울",
-      site: "https://www.mmca.go.kr",
-    },
-    tags: ["국립", "기획전"],
-    confidence: "high",
-  },
-  {
-    id: "apma",
-    name: "아모레퍼시픽미술관",
-    nameEn: "Amorepacific Museum of Art",
-    category: "사립미술관",
-    address: "서울 용산구 한강대로 100",
-    addressDetail: "아모레퍼시픽 본사 B1",
-    lat: 37.5290, lng: 126.9650,
-    dist: 8.4,
-    show: {
-      title: "엘름그린 & 드라그셋",
-      titleEn: "Elmgreen & Dragset",
-      period: "2025.09.03 — 2026.08.23",
-      endDate: "2026-08-23",
-      status: "전시 중",
-      curator: "APMA",
-      artists: ["엘름그린 & 드라그셋"],
-    },
-    fee: "성인 18,000원",
-    hours: "화–일 10:00–18:00 · 월 휴관",
-    phone: "02-6040-2345",
-    links: {
-      naver: "https://map.naver.com/p/search/아모레퍼시픽미술관",
-      site: "https://apma.amorepacific.com",
-    },
-    tags: ["조각", "설치"],
-    confidence: "high",
-  },
-  {
-    id: "pace",
-    name: "페이스갤러리 서울",
-    nameEn: "Pace Gallery Seoul",
-    category: "갤러리",
-    address: "서울 용산구 이태원로 262",
-    addressDetail: "한남동 르베이지 빌딩",
-    lat: 37.5375, lng: 127.0008,
-    dist: 6.1,
-    show: {
-      title: "Lee Ufan: Quiet Resonance",
-      titleEn: "Lee Ufan: Quiet Resonance",
-      period: "2026.04.07 — 2026.06.10",
-      endDate: "2026-06-10",
-      status: "전시 중",
-      curator: "Pace",
-      artists: ["이우환"],
-    },
-    fee: "무료",
-    hours: "화–토 10:00–18:00",
-    phone: "02-790-9388",
-    links: {
-      naver: "https://map.naver.com/p/search/페이스갤러리 서울",
-      site: "https://www.pacegallery.com",
-    },
-    tags: ["블루칩", "회화"],
-    confidence: "high",
-  },
-  {
-    id: "artsonje",
-    name: "아트선재센터",
-    nameEn: "Art Sonje Center",
-    category: "비영리미술관",
-    address: "서울 종로구 율곡로3길 87",
-    addressDetail: "안국역 도보 8분",
-    lat: 37.5808, lng: 126.9839,
-    dist: 7.4,
-    show: {
-      title: "사라지는 것들에 관하여",
-      titleEn: "On Vanishings",
-      period: "2026.04.10 — 2026.06.28",
-      endDate: "2026-06-28",
-      status: "전시 중",
-      curator: "김선정",
-      artists: ["국내 5인"],
-    },
-    fee: "성인 5,000원",
-    hours: "화–일 12:00–19:00 · 월 휴관",
-    phone: "02-733-8945",
-    links: {
-      naver: "https://map.naver.com/p/search/아트선재센터",
-      site: "https://artsonje.org",
-    },
-    tags: ["비영리", "실험"],
-    confidence: "high",
-  },
-  {
-    id: "whanki",
-    name: "환기미술관",
-    nameEn: "Whanki Museum",
-    category: "사립미술관",
-    address: "서울 종로구 자하문로40길 63",
-    addressDetail: "부암동 · 경복궁역 3번 출구 마을버스",
-    lat: 37.5942, lng: 126.9628,
-    dist: 8.7,
-    show: {
-      title: "시(視)의 이: PART II — 디지털 신소장품",
-      titleEn: "The Eye of the Poem: PART II",
-      period: "2026.04.30 — 2026.07.31",
-      endDate: "2026-07-31",
-      status: "전시 중",
-      curator: "환기재단",
-      artists: ["김환기 외 디지털 신소장품"],
-    },
-    fee: "성인 22,000원 · 경로 11,000원 · 청소년 11,000원",
-    hours: "화–일 10:00–17:00 · 월 휴관",
-    phone: "02-391-7701",
-    links: {
-      naver: "https://map.naver.com/p/search/환기미술관",
-      site: "https://whankimuseum.org",
-    },
-    tags: ["김환기", "수화", "부암동"],
-    confidence: "high",
-  },
-];
+    tags:       [it.category || '검색결과'].filter(Boolean),
+    confidence: e.showTitle ? 'medium' : 'low',
+    _apiSource: 'local',
+    _blogLinks: e.blogLinks || [],
+  };
+}
+
 
 /* ---------------------------------------------------------------- */
 /* HELPERS                                                          */
@@ -395,71 +135,6 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return +(2*R*Math.asin(Math.sqrt(a))).toFixed(1);
 }
 
-// 네이버 검색 응답 item → Venue 객체로 매핑
-function itemToVenue(item, idx, origin) {
-  const coords = parseCoords(item.mapx, item.mapy);
-  const dist = coords ? haversineKm(origin.lat, origin.lng, coords.lat, coords.lng) : null;
-  return {
-    id: `api-${idx}-${(item.title || "").slice(0, 12)}`,
-    name: item.title || "이름 미상",
-    nameEn: "네이버 검색 결과",
-    category: item.category || "분류 미상",
-    address: item.roadAddress || item.address || "주소 정보 없음",
-    addressDetail: item._matchedVariant && item._matchedVariant !== item.title ? `조회어: “${item._matchedVariant}”` : "",
-    lat: coords?.lat, lng: coords?.lng,
-    dist,
-    show: {
-      title: "전시 정보 보강 필요",
-      titleEn: "Verify with venue",
-      period: "확인 필요",
-      status: "확인 필요",
-      curator: "—",
-      artists: ["공식 홈페이지 확인"],
-    },
-    fee: "확인 필요",
-    hours: "확인 필요",
-    phone: item.telephone || "—",
-    links: {
-      naver: `https://map.naver.com/p/search/${encodeURIComponent((item.title || "").replace(/<[^>]+>/g,""))}`,
-      site: item.link || undefined,
-    },
-    tags: ["네이버 검색"],
-    confidence: "medium",
-    _apiSource: "local",
-  };
-}
-
-function blogToVenue(item, idx) {
-  return {
-    id: `blog-${idx}`,
-    name: item.title || "블로그 결과",
-    nameEn: "블로그 폴백",
-    category: "분류 미상",
-    address: "블로그 후기에서 확인",
-    addressDetail: (item.description || "").slice(0, 90),
-    dist: null,
-    show: {
-      title: (item.description || "").slice(0, 70) || "정보 보강 필요",
-      titleEn: "From blog post",
-      period: "확인 필요",
-      status: "확인 필요",
-      curator: item.bloggerName || "블로거",
-      artists: ["블로그 내용 참고"],
-    },
-    fee: "확인 필요",
-    hours: "확인 필요",
-    phone: "—",
-    links: {
-      naver: `https://map.naver.com/p/search/${encodeURIComponent(item.title || "")}`,
-      review: item.link,
-    },
-    tags: ["블로그 폴백"],
-    confidence: "low",
-    note: "네이버 지역검색에서 명확한 매칭이 없어 블로그 검색에서 폴백된 결과입니다.",
-    _apiSource: "blog",
-  };
-}
-
 /* ---------------------------------------------------------------- */
 /* APP                                                              */
 /* ---------------------------------------------------------------- */
@@ -499,41 +174,43 @@ function App() {
     );
   };
 
-  // ---- Live Naver API integration ----
+  // ---- Naver API: discover(초기화면) + query(검색) ----
   const [apiVenues, setApiVenues] = useState([]);
-  const [apiState, setApiState] = useState("idle"); // idle | loading | ok | empty | error | unavailable
-  const [apiMeta, setApiMeta] = useState(null);
+  const [apiState, setApiState]   = useState("idle");
+  const [apiMeta, setApiMeta]     = useState(null);
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) {
-      setApiVenues([]); setApiState("idle"); setApiMeta(null);
-      return;
-    }
     const ctrl = new AbortController();
     setApiState("loading");
+
+    // discover 모드: 쿼리 없을 때 주변 전시 자동 탐색
+    const url = q.length >= 2
+      ? `/api/naver-search?query=${encodeURIComponent(q)}`
+      : "/api/naver-search?discover=1";
+
+    const delay = q.length >= 2 ? 400 : 0;
+
     const timer = setTimeout(async () => {
       try {
-        const r = await fetch(`/api/naver-search?query=${encodeURIComponent(q)}`, { signal: ctrl.signal });
+        const r = await fetch(url, { signal: ctrl.signal });
         if (!r.ok) {
           if (r.status === 404) { setApiState("unavailable"); return; }
           throw new Error("API " + r.status);
         }
         const data = await r.json();
-        const localVs = (data.items || []).map((it, i) => itemToVenue(it, i, origin));
-        const blogVs  = (data.blog  || []).map((it, i) => blogToVenue(it, i));
-        const all = [...localVs, ...blogVs];
-        setApiVenues(all);
+        const venues = (data.items || []).map((it, i) => parseApiItem(it, i, origin));
+        setApiVenues(venues);
         setApiMeta(data.meta || null);
-        setApiState(all.length ? "ok" : "empty");
+        setApiState(venues.length ? "ok" : "empty");
       } catch (e) {
         if (e.name === "AbortError") return;
         setApiVenues([]);
         setApiState("unavailable");
       }
-    }, 400);
+    }, delay);
     return () => { ctrl.abort(); clearTimeout(timer); };
-  }, [query, origin.lat, origin.lng]);
+  }, [query, origin.lat, origin.lng]); // mount 시 자동 실행
 
   // ESC closes modal
   useEffect(() => {
@@ -549,52 +226,25 @@ function App() {
     };
   }, [selectedId]);
 
-  // 동적 거리 계산: origin이 바뀌면 모든 거리 재계산
-  const venuesWithDist = useMemo(() =>
-    VENUES.map(v => (v.lat != null && v.lng != null)
-      ? { ...v, dist: haversineKm(origin.lat, origin.lng, v.lat, v.lng) }
-      : v
-    ),
-  [origin.lat, origin.lng]);
-
   const filtered = useMemo(() => {
-    // Mock VENUES — 조건: 필수필드 + 반경 + 카테고리 + 입장료 + 기간 + 검색어
-    let mockArr = venuesWithDist
-      .filter(v => isShowable(v))
+    // API venues only — 목업 없음
+    let arr = apiVenues
+      .filter(v => v.name && v.address)
       .filter(v => v.dist == null || v.dist <= radius)
       .filter(v => passesPeriodFilter(v, periodFilter))
       .filter(v => passesFeeFilter(v, feeFilter));
-    if (filterCat !== "전체") mockArr = mockArr.filter(v => v.category === filterCat);
+
+    if (filterCat !== "전체") arr = arr.filter(v => v.category === filterCat);
+
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      mockArr = mockArr.filter(v =>
+      arr = arr.filter(v =>
         v.name.toLowerCase().includes(q) ||
-        v.nameEn.toLowerCase().includes(q) ||
-        v.show.title.toLowerCase().includes(q) ||
-        v.address.toLowerCase().includes(q)
+        (v.show?.title || "").toLowerCase().includes(q) ||
+        (v.address || "").toLowerCase().includes(q)
       );
     }
 
-    // API venues — 가벼운 조건 (상호명 + 주소만 필요, 전시명 없어도 허용)
-    let apiArr = [];
-    if (query.trim().length >= 2 && apiVenues.length > 0) {
-      const existingNames = new Set(mockArr.map(v => v.name.toLowerCase().trim()));
-      apiArr = apiVenues
-        .filter(v => v.name && v.address)   // 전시명 없어도 통과
-        .filter(v => {
-          // 기간 필터: endDate 없으면 (정보 미상) 진행 중으로 간주
-          if (periodFilter === "all") return true;
-          if (!v.show?.endDate) return periodFilter === "active" || periodFilter === "soon" ? false : true;
-          return passesPeriodFilter(v, periodFilter);
-        })
-        .filter(v => passesFeeFilter(v, feeFilter))
-        .filter(v => !existingNames.has(v.name.toLowerCase().trim()));
-      if (filterCat !== "전체") {
-        apiArr = apiArr.filter(v => v.category === filterCat || v._apiSource === "blog");
-      }
-    }
-
-    let arr = [...mockArr, ...apiArr];
     if (t.sortBy === "distance") {
       arr = [...arr].sort((a,b) => (a.dist ?? 9999) - (b.dist ?? 9999));
     } else if (t.sortBy === "ending") {
@@ -603,7 +253,7 @@ function App() {
       arr = [...arr].sort((a,b) => a.category.localeCompare(b.category) || (a.dist ?? 9999) - (b.dist ?? 9999));
     }
     return arr;
-  }, [query, radius, filterCat, t.sortBy, apiVenues, venuesWithDist, feeFilter, periodFilter]);
+  }, [query, radius, filterCat, t.sortBy, apiVenues, feeFilter, periodFilter]);
 
   // auto-select first if current selection filtered out
   useEffect(() => {
@@ -612,7 +262,7 @@ function App() {
     }
   }, [filtered, selectedId]);
 
-  const selected = [...venuesWithDist, ...apiVenues].find(v => v.id === selectedId);
+  const selected = apiVenues.find(v => v.id === selectedId);
 
   const cats = ["전체", "갤러리", "사립미술관", "국립미술관", "비영리미술관", "미디어아트"];
 
