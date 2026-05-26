@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <clipPath id="c"><circle cx="32" cy="32" r="31"></circle></clipPath>
+    <filter id="b" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="5.6"></feGaussianBlur>
+    </filter>
+  </defs>
+  <g clip-path="url(#c)">
+    <g filter="url(#b)">
+      <rect x="0" y="0" width="16" height="16" fill="#00bcd9"></rect>
+      <rect x="16" y="0" width="16" height="16" fill="#fde100"></rect>
+      <rect x="32" y="0" width="16" height="16" fill="#2451d0"></rect>
+      <rect x="48" y="0" width="16" height="16" fill="#d12bbc"></rect>
+      <rect x="0" y="16" width="16" height="16" fill="#ed7a13"></rect>
+      <rect x="16" y="16" width="16" height="16" fill="#732a96"></rect>
+      <rect x="32" y="16" width="16" height="16" fill="#1d9c4f"></rect>
+      <rect x="48" y="16" width="16" height="16" fill="#ffffff"></rect>
+      <rect x="0" y="32" width="16" height="16" fill="#a8052e"></rect>
+      <rect x="16" y="32" width="16" height="16" fill="#abe628"></rect>
+      <rect x="32" y="32" width="16" height="16" fill="#1ec0c0"></rect>
+      <rect x="48" y="32" width="16" height="16" fill="#322385"></rect>
+      <rect x="0" y="48" width="16" height="16" fill="#d8a017"></rect>
+      <rect x="16" y="48" width="16" height="16" fill="#322f30"></rect>
+      <rect x="32" y="48" width="16" height="16" fill="#ee7fb3"></rect>
+      <rect x="48" y="48" width="16" height="16" fill="#de4a14"></rect>
+    </g>
+    <rect width="64" height="64" fill="#fbf8f1" opacity="0.60"></rect>
+  </g>
+  <circle cx="32" cy="32" r="31" fill="none" stroke="#0a0907" stroke-width="2"></circle>
+  <ellipse cx="32" cy="40.8" rx="4" ry="1.05" fill="#0a0907" opacity="0.22"></ellipse>
+  <path d="M32,23.2 C37.2,23.2 37.2,31.2 32,39.2 C26.8,31.2 26.8,23.2 32,23.2 Z" fill="#0a0907" stroke="#fbf8f1" stroke-width="1.6" stroke-linejoin="round"></path>
+  <circle cx="32" cy="28.4" r="2" fill="#fbf8f1"></circle>
+</svg>
