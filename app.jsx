@@ -14,12 +14,22 @@ function mapCategory(cat) {
   return '갤러리';
 }
 
+// Stage 5: 신뢰도 점수 → 표시 tier
+function confidenceTier(score) {
+  if (!score || score <= 0) return 'none';
+  if (score >= 0.75) return 'high';
+  if (score >= 0.45) return 'medium';
+  return 'low';
+}
+
 function parseApiItem(it, idx, origin) {
   const coords = parseCoords(it.mapx, it.mapy);
   const dist   = coords ? haversineKm(origin.lat, origin.lng, coords.lat, coords.lng) : null;
   const e      = it.enriched || {};
   const now    = new Date();
   const ended  = e.endDate ? new Date(e.endDate) < now : false;
+  const titleConf = e.titleConfidence || 0;
+  const tier      = confidenceTier(titleConf);
 
   return {
     id:          `nv-${idx}-${(it.title || '').slice(0,8).replace(/\s/g,'')}`,
@@ -36,9 +46,12 @@ function parseApiItem(it, idx, origin) {
       titleEn: '',
       period:  e.period     || '',
       endDate: e.endDate    || null,
-      status:  ended ? '종료' : (e.endDate ? '전시 중' : '확인 필요'),
+      status:  ended ? '종료' : (e.endDate ? '전시 중' : (e.showTitle ? '전시 중' : '확인 필요')),
       curator: e.curator    || '',
       artists: e.artist ? [e.artist] : [],
+      // Stage 5: 신뢰도 정보
+      confidence:      titleConf,
+      confidenceTier:  tier,    // high | medium | low | none
     },
     fee:   e.fee   || '확인 필요',
     hours: e.hours || '확인 필요',
@@ -49,9 +62,10 @@ function parseApiItem(it, idx, origin) {
       ...(e.blogLinks || []).reduce((acc, b, i) => { acc[`blog${i+1}`] = b.link; return acc; }, {}),
     },
     tags:       [it.category || '검색결과'].filter(Boolean),
-    confidence: e.showTitle ? 'medium' : 'low',
+    confidence: tier === 'high' ? 'high' : (tier === 'medium' ? 'medium' : 'low'),
     _apiSource: 'local',
     _blogLinks: e.blogLinks || [],
+    _venueTier: it._tier || null, // A | B | null
   };
 }
 
@@ -116,6 +130,41 @@ const CATEGORY_ICON = (cat) => ({
   "분류 미상": "○",
 }[cat] || "◇");
 
+// 좌표 → 한국 행정구역 레이블 변환
+// 예) 서울특별시 은평구 역촌동 → "서울 역촌동"
+//     경기도 고양시 덕양구 행신동 → "고양시 행신동"
+//     경기도 수원시 영통구 매탄3동 → "수원시 매탄동"
+async function reverseGeocodeKR(lat, lng) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=ko`;
+    const r = await fetch(url, { headers: { 'User-Agent': 'MYEXHIT/1.0' } });
+    if (!r.ok) throw new Error('geocode fail');
+    const data = await r.json();
+    const a = data.address || {};
+
+    // Nominatim: 한국에서는 city 필드에 특별시/광역시/시·군이 혼재
+    const city = (a.city || a.town || a.county || '').trim();
+
+    let part1 = '';
+    if (/특별시|광역시|특별자치시/.test(city)) {
+      // 서울특별시 → 서울, 부산광역시 → 부산
+      part1 = city.replace(/특별시|광역시|특별자치시/, '').trim();
+    } else {
+      // 파주시, 고양시, 수원시 등 일반 시/군 그대로
+      part1 = city;
+    }
+
+    // 동/읍/면 레벨: suburb 우선, 숫자만 제거 (응암1동 → 응암동, 매탄3동 → 매탄동)
+    const dong = (a.suburb || a.neighbourhood || a.quarter || '').trim();
+    const part2 = dong.replace(/([가-힣]+)\d+(동|읍|면)/, '$1$2');
+
+    const label = [part1, part2].filter(Boolean).join(' ');
+    return label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  } catch {
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+}
+
 // Naver mapx/mapy → lat/lng (네이버는 곱셈 단위가 일관되지 않아 분기 시도)
 function parseCoords(mapx, mapy) {
   if (mapx == null || mapy == null) return null;
@@ -161,12 +210,12 @@ function App() {
     if (!navigator.geolocation) { setGpsState("denied"); return; }
     setGpsState("loading");
     navigator.geolocation.getCurrentPosition(
-      pos => {
-        setOrigin({
-          label: `현재 위치 (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        });
+      async pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        // 좌표 → 행정구역 역지오코딩 (실패 시 좌표 폴백)
+        const label = await reverseGeocodeKR(lat, lng);
+        setOrigin({ label, lat, lng });
         setGpsState("ok");
       },
       () => setGpsState("denied"),
@@ -185,9 +234,11 @@ function App() {
     setApiState("loading");
 
     // discover 모드: 쿼리 없을 때 주변 전시 자동 탐색
+    // origin.label에서 시/군 추출하여 discover 쿼리에 지역 반영
+    const regionPart = origin.label.match(/([가-힣]+시|[가-힣]+군)/)?.[1] || '';
     const url = q.length >= 2
       ? `/api/naver-search?query=${encodeURIComponent(q)}`
-      : "/api/naver-search?discover=1";
+      : `/api/naver-search?discover=1${regionPart ? '&region=' + encodeURIComponent(regionPart) : ''}`;
 
     const delay = q.length >= 2 ? 400 : 0;
 
@@ -321,9 +372,8 @@ function App() {
               <p className="empty-sub">반경을 늘리거나 검색어를 줄여보세요</p>
             </li>
           )}
+          <li className="footnote-item"><FooterNote /></li>
         </ul>
-
-        <FooterNote />
       </main>
 
       {selected && (
@@ -519,7 +569,7 @@ function CategoryChips({ cats, active, setActive }) {
           key={c}
           className={"chip " + (active === c ? "is-active" : "")}
           onClick={() => setActive(c)}
-        >{c}</button>
+        >{c === "전체" ? c : <>{CATEGORY_ICON(c)} {c}</>}</button>
       ))}
     </div>
   );
@@ -585,7 +635,7 @@ function VenueCard({ v, idx, active, onClick, showConfidence }) {
     >
       <div className="venue-idx">
         <span className="idx-num">{String(idx).padStart(2, "0")}</span>
-        <span className="idx-icon">{CATEGORY_ICON(v.category)}</span>
+        <span className="idx-icon" data-tip={v.category}>{CATEGORY_ICON(v.category)}</span>
       </div>
       <div className="venue-body">
         <div className="venue-head">
@@ -597,19 +647,43 @@ function VenueCard({ v, idx, active, onClick, showConfidence }) {
             {v.dist == null ? <small style={{fontStyle:"normal",fontFamily:"var(--font-mono)"}}>—</small> : <>{v.dist}<small>km</small></>}
           </span>
         </div>
+        {/* Phase F: 후기 링크 — venue-dist 바로 아래, 우측 정렬 */}
+        {(v.show?.confidenceTier === 'none' || v.show?.confidenceTier === 'low') && v._blogLinks?.length > 0 && (
+          <div className="venue-reviews">
+            <span className="reviews-label">후기</span>
+            {v._blogLinks.slice(0, 3).map((b, i) => (
+              <a key={i} href={b.link} target="_blank" rel="noopener" className="review-link"
+                 title={b.title} onClick={(e) => e.stopPropagation()}>
+                {['①','②','③'][i]}
+              </a>
+            ))}
+          </div>
+        )}
         <div className="venue-sub">
           <span className="venue-cat">{v.category}</span>
           <span className="dot" />
           <span className="venue-en">{v.nameEn}</span>
         </div>
         <p className="venue-show">
-          {v.show?.title && !v.show.title.includes("정보 보강") ? (
-            <>「{v.show.title}」 <span className="venue-period">{v.show.period}</span>
-              {(() => { const dl = daysLeft(v); return (dl != null && dl >= 0 && dl <= 30) ? <span className={"d-day " + (dl <= 7 ? "d-day-urgent" : "")}>D-{dl}</span> : null; })()}
-            </>
-          ) : (
-            <span className="venue-unverified">⚠ 전시 정보 미확인 — 네이버 지도에서 확인</span>
-          )}
+          {(() => {
+            const tier = v.show?.confidenceTier || 'none';
+            if (tier === 'high' && v.show?.title) {
+              return (
+                <>「{v.show.title}」 <span className="venue-period">{v.show.period}</span>
+                  {(() => { const dl = daysLeft(v); return (dl != null && dl >= 0 && dl <= 30) ? <span className={"d-day " + (dl <= 7 ? "d-day-urgent" : "")}>D-{dl}</span> : null; })()}
+                </>
+              );
+            }
+            if (tier === 'medium' && v.show?.title) {
+              return (
+                <>「{v.show.title}」 <span className="conf-warn" title="신뢰도 보통 — 네이버 지도에서 재확인 권장">⚠</span> <span className="venue-period">{v.show.period}</span></>
+              );
+            }
+            if (tier === 'low' && v.show?.title) {
+              return <span className="conf-low">전시 정보 불확실 — 네이버 지도에서 확인</span>;
+            }
+            return <span className="venue-unverified">⚠ 전시 정보 없음 — 네이버 지도에서 확인</span>;
+          })()}
         </p>
         <div className="venue-foot">
           <span className="venue-addr">{v.address}</span>
@@ -645,19 +719,19 @@ function DetailPanel({ v, showMap, onClose }) {
         <div className="detail-status">
           <span className="status-dot" />
           {v.show.status} · 직선거리 {v.dist}km
+          {v.links.naver && (
+            <a className="status-map-link" href={v.links.naver} target="_blank" rel="noopener">
+              네이버 지도에서 열기 ↗
+            </a>
+          )}
         </div>
       </div>
 
-      {showMap && <MapPreview v={v} />}
-
-      <div className="detail-show">
-        <div className="show-label">현재 전시</div>
-        <h3 className="show-title">「{v.show.title}」</h3>
-        <p className="show-title-en">{v.show.titleEn}</p>
-        <p className="show-period">{v.show.period}</p>
-      </div>
-
       <dl className="detail-grid">
+        <FieldWithReviews label="전시"
+               tier={v.show?.confidenceTier}
+               title={v.show?.title}
+               period={v.show?.period} />
         <Field label="주소" value={v.address} sub={v.addressDetail} />
         <Field label="입장료" value={v.fee} highlight={v.fee === "무료"} />
         <Field label="운영시간" value={v.hours} />
@@ -673,11 +747,6 @@ function DetailPanel({ v, showMap, onClose }) {
       )}
 
       <div className="detail-links">
-        {v.links.naver && (
-          <a className="d-link primary" href={v.links.naver} target="_blank" rel="noopener">
-            네이버 지도로 길찾기 <span aria-hidden>↗</span>
-          </a>
-        )}
         {v.links.site && (
           <a className="d-link" href={v.links.site} target="_blank" rel="noopener">
             공식 홈페이지 <span aria-hidden>↗</span>
@@ -688,6 +757,16 @@ function DetailPanel({ v, showMap, onClose }) {
             관람 후기 <span aria-hidden>↗</span>
           </a>
         )}
+        {/* Phase F: 블로그 후기 링크 (상세 패널 최하단, 공식 홈페이지 아래) */}
+        {v._blogLinks?.length > 0 && v._blogLinks.slice(0, 3).map((b, i) => (
+          <a key={i} className="d-link d-link-blog" href={b.link} target="_blank" rel="noopener">
+            <span className="d-link-blog-content">
+              <span className="d-link-review-num">{['①','②','③'][i]}</span>
+              <span className="d-link-blog-title">{b.title}</span>
+            </span>
+            <span className="d-link-arrow" aria-hidden>↗</span>
+          </a>
+        ))}
       </div>
 
       {v.confidence === "low" && (
@@ -710,6 +789,26 @@ function Field({ label, value, sub, highlight }) {
       <dd className={highlight ? "is-highlight" : ""}>
         {value}
         {sub && <span className="field-sub">{sub}</span>}
+      </dd>
+    </div>
+  );
+}
+
+// 전시 필드 — tier별 제목 표시 (블로그 링크는 detail-links 섹션으로 이동)
+function FieldWithReviews({ label, tier, title, period }) {
+  const noTitle = !title;
+  let mainText;
+  if (noTitle)              mainText = '정보 없음';
+  else if (tier === 'high') mainText = `「${title}」`;
+  else if (tier === 'medium') mainText = `「${title}」 ⚠`;
+  else                      mainText = `「${title}」 (불확실)`;
+
+  return (
+    <div className="field">
+      <dt>{label}</dt>
+      <dd>
+        {mainText}
+        {period && <span className="field-sub">{period}</span>}
       </dd>
     </div>
   );

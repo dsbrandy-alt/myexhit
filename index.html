@@ -75,8 +75,9 @@ body::before{
 /* ---------------- PAGE ---------------- */
 .page{
   position:relative;z-index:1;
-  min-height:100vh;
+  height:100vh;
   display:flex;flex-direction:column;
+  overflow:hidden;
 }
 
 /* ---------------- HEADER ---------------- */
@@ -127,7 +128,9 @@ body::before{
   width:100%;
   max-width: 780px;
   margin: 0 auto;
-  padding: 36px 24px 60px;
+  padding: 36px 24px 0;
+  display:flex;flex-direction:column;
+  overflow:hidden;
 }
 
 /* ---------------- SEARCH ---------------- */
@@ -241,7 +244,88 @@ body::before{
 
 /* ---------------- D-DAY BADGE ---------------- */
 .venue-unverified{
-  font-size:11.5px;color:var(--warn);font-family:var(--font-mono);font-weight:600;
+  font-size:11.5px;color:var(--ink-3);font-family:var(--font-mono);font-weight:600;
+}
+.conf-warn{
+  display:inline-block;
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+  margin: 0 4px;
+  cursor: help;
+  vertical-align: 1px;
+}
+.conf-low{
+  font-size:11.5px;color:var(--ink-3);font-family:var(--font-mono);font-weight:500;
+  font-style: italic;
+}
+/* Phase F: 블로그 후기 링크 (①②③) — venue-dist 바로 아래, 우측 정렬 */
+.venue-reviews{
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+}
+.reviews-label{
+  color: var(--ink-3);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.review-link{
+  display: inline-block;
+  margin: 0;
+  padding: 3px 9px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  font-size: 14px;
+  vertical-align: -1px;
+  transition: transform 0.1s;
+  min-width: 32px;
+  text-align: center;
+}
+.review-link:hover{
+  transform: scale(1.2);
+  text-decoration: none;
+}
+/* active 상태에서 후기 링크 색 조정 */
+.is-active .reviews-label{ color: rgba(251,248,241,0.55); }
+.is-active .review-link{ color: var(--accent-soft); }
+/* Phase F: 상세 패널 블로그 링크 버튼 */
+.d-link-blog{
+  border-color: var(--line-2);
+}
+.d-link-blog-content{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.d-link-review-num{
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+.d-link-blog-title{
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 13px;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.d-link-arrow{
+  flex-shrink: 0;
+  margin-left: 8px;
 }
 .d-day{
   display: inline-block;
@@ -349,7 +433,15 @@ body::before{
 }
 
 /* ---------------- VENUE LIST ---------------- */
-.venue-list{display:flex;flex-direction:column;gap:0}
+.venue-list{
+  flex:1;
+  overflow-y:auto;
+  display:flex;flex-direction:column;gap:0;
+  padding-bottom: 40px;
+}
+.venue-list::-webkit-scrollbar{width:6px}
+.venue-list::-webkit-scrollbar-track{background:transparent}
+.venue-list::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px}
 .venue{
   position:relative;
   display:grid;
@@ -390,10 +482,33 @@ body::before{
 .idx-icon{
   font-size: 22px;color: var(--ink);
   line-height: 1;
+  position: relative;
+  cursor: default;
 }
 .z10 .idx-icon{color: var(--z10)}
 .z20 .idx-icon{color: var(--z20)}
 .z30 .idx-icon{color: var(--z30)}
+/* 커스텀 툴팁 */
+.idx-icon::after{
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.idx-icon:hover::after{ opacity: 1; }
 
 .venue-body{min-width:0}
 .venue-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
@@ -599,6 +714,15 @@ body::before{
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 25%, transparent);
 }
+.status-map-link{
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.status-map-link:hover{ text-decoration: underline; }
 
 /* show block */
 .detail-show{
@@ -765,6 +889,7 @@ body::before{
 .map-cta:hover{background: var(--ink);color: var(--paper);border-color: var(--ink)}
 
 /* footnote */
+.footnote-item{ list-style:none }
 .footnote{
   margin-top: 40px;
   padding-top: 24px;
